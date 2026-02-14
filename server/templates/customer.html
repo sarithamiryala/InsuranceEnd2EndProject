@@ -1,0 +1,17 @@
+<h2>Register Claim</h2>
+<form action="/customer/register" method="post" enctype="multipart/form-data">
+    Claim ID: <input name="claim_id"><br>
+    Name: <input name="customer_name"><br>
+    Policy: <input name="policy_number"><br>
+    Amount: <input name="amount"><br>
+    Type: <input name="claim_type"><br>
+    Description: <textarea name="description"></textarea><br>
+    Documents: <input type="file" name="files" multiple><br>
+    <button type="submit">Submit</button>
+</form>
+
+<h2>Check Status</h2>
+<form action="/customer/status" method="get">
+    Transaction ID: <input name="transaction_id">
+    <button type="submit">Check</button>
+</form>

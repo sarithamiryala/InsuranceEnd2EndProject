@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block content %}
+<h3>Customer: Check Status</h3>
+
+/ui/customer/status
+  <label>Reference (Transaction ID)</label><br/>
+  <input name="tx" value="{{ tx }}" style="width:60%"/>
+  <button class="btn btn-primary" type="submit">Lookup</button>
+</form>
+
+{% if error %}
+  <p class="err">{{ error }}</p>
+{% endif %}
+
+{% if claim %}
+  <h4>Claim</h4>
+  <table>
+    <tr><th>Transaction</th><td>{{ claim.transaction_id }}</td></tr>
+    <tr><th>Claim ID</th><td>{{ claim.claim_id }}</td></tr>
+    <tr><th>Customer</th><td>{{ claim.customer_name }}</td></tr>
+    <tr><th>Policy</th><td>{{ claim.policy_number }}</td></tr>
+    <tr><th>Amount</th><td>{{ claim.amount }}</td></tr>
+    <tr><th>Type</th><td>{{ claim.claim_type }}</td></tr>
+    <tr><th>Registered</th><td>{{ claim.registered_at }}</td></tr>
+    <tr><th>Status</th><td>{{ claim.status }}</td></tr>
+    <tr><th>Final Decision</th><td>{{ claim.final_decision }}</td></tr>
+  </table>
+
+  <h4>Documents</h4>
+  <table>
+    <tr><th>#</th><th>File</th><th>Type</th><th>Content Type</th><th>Size</th></tr>
+    {% for d in docs %}
+    <tr>
+      <td>{{ d.id }}</td>
+      <td>{{ d.filename }}</td>
+      <td>{{ d.doc_type }}</td>
+      <td>{{ d.content_type }}</td>
+      <td>{{ d.size_bytes }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+{% endif %}
+{% endblock %}

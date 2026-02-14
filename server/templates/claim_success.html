@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="card success-card">
+    <h2>✅ Claim Registered Successfully</h2>
+
+    <p><strong>Customer:</strong> {{ customer_name }}</p>
+    <p><strong>Transaction ID:</strong> {{ transaction_id }}</p>
+    <p><strong>Registered At:</strong> {{ registered_at }}</p>
+
+    <div class="success-message">
+        {{ message }}
+    </div>
+
+    <br>
+    <a href="/customer" class="btn">Back to Customer Portal</a>
+</div>
+{% endblock %}

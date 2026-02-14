@@ -1,0 +1,26 @@
+body {
+    font-family: Arial;
+    background: #f4f6f9;
+    text-align: center;
+}
+
+.center {
+    margin-top: 100px;
+}
+
+.card-container {
+    display: flex;
+    justify-content: center;
+    gap: 50px;
+}
+
+.card {
+    padding: 40px;
+    font-size: 20px;
+    text-decoration: none;
+    color: white;
+    border-radius: 10px;
+}
+
+.green { background: #28a745; }
+.blue { background: #007bff; }

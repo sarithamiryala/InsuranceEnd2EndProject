@@ -1,0 +1,26 @@
+<h2>Claim Details</h2>
+<p><b>Transaction:</b> {{ claim.transaction_id }}</p>
+<p><b>Customer:</b> {{ claim.customer_name }}</p>
+<p><b>Amount:</b> {{ claim.amount }}</p>
+<p><b>Status:</b> {{ claim.status }}</p>
+
+<h3>Documents</h3>
+<ul>
+{% for d in docs %}
+<li>{{ d.filename }}</li>
+{% endfor %}
+</ul>
+
+<form action="/manager/run/{{ claim.transaction_id }}" method="post">
+<button type="submit">Run LLM Validation + Fraud</button>
+</form>
+
+<form action="/manager/decision/{{ claim.transaction_id }}" method="post">
+<select name="decision">
+<option>APPROVED</option>
+<option>REJECTED</option>
+<option>PENDING_DOCUMENTS</option>
+<option>ESCALATED_TO_SIU</option>
+</select>
+<button type="submit">Submit Decision</button>
+</form>

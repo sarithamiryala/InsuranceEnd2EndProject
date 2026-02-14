@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Register Claim</title>
+</head>
+<body>
+
+<h2>Register Claim</h2>
+
+<form method="post"
+      action="/ui/customer/register"
+      enctype="multipart/form-data">
+
+    <label>Claim ID:</label>
+    <input type="text" name="claim_id" required><br><br>
+
+    <label>Amount:</label>
+    <input type="number" name="amount" required><br><br>
+
+    <button type="submit">Register</button>
+
+</form>
+
+</body>
+</html>

@@ -1,0 +1,20 @@
+<h2>Manager Dashboard</h2>
+<table border="1">
+<tr>
+<th>Transaction</th>
+<th>Customer</th>
+<th>Amount</th>
+<th>Status</th>
+<th>Action</th>
+</tr>
+
+{% for c in claims %}
+<tr>
+<td>{{ c.transaction_id }}</td>
+<td>{{ c.customer_name }}</td>
+<td>{{ c.amount }}</td>
+<td>{{ c.status }}</td>
+<td><a href="/manager/claim/{{ c.transaction_id }}">View</a></td>
+</tr>
+{% endfor %}
+</table>

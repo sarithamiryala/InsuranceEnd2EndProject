@@ -1,0 +1,14 @@
+
+Accident Claim – Motor Insurance
+
+Claimant: Meera N
+Accident Date: 02-Feb-2026
+FIR Date: 08-Feb-2026
+
+Garage Estimate: ₹80,000
+Final Invoice Amount: ₹1,80,000
+
+Observations:
+- Invoice number appears manually edited
+- Same invoice number was used in a previous claim
+- Amount mismatch between estimate and final bill
