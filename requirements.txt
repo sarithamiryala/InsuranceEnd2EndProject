@@ -7,7 +7,6 @@ pillow
 opencv-python-headless
 langgraph
 langchain
-langchain-google-genai
 pydantic
 python-dotenv 
 fastmcp 

@@ -1,4 +1,4 @@
-# backend/agents/llm_router_agent.py
+# backend/agents/llm_validation_agent.py
 from backend.services.llm_client import llm_response
 from backend.state.claim_state import RouterDecision
 from backend.utils.safe_json import safe_json_parse

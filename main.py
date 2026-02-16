@@ -85,6 +85,43 @@ async def ClaimRegistrationTool(
         "claim_id": state.claim_id
     }
 
+# ============================================================
+# 2️⃣ DOCUMENT OCR TEXT UPDATE TOOL (FRONTEND → DB)
+# ============================================================
+
+@mcp.tool
+async def UpdateDocumentExtractedTextTool(
+    transaction_id: str,
+    extracted_text: str
+):
+    """
+    Updates OCR extracted text of uploaded documents
+    for a registered insurance claim.
+
+    Use this tool AFTER customer uploads FIR / DL / RC /
+    repair estimate etc.
+
+    This text will later be used by AI Validation Agent
+    during claim validation.
+    """
+
+    claim, docs = fetch_claim_and_docs(transaction_id)
+
+    if not claim:
+        return {"error": "Transaction ID not found. Please register claim first."}
+
+    update_claim_fields(
+        transaction_id,
+        document_extracted_text=extracted_text,
+        status="DOCUMENTS_UPLOADED",
+        updated_at=datetime.now(timezone.utc).isoformat()
+    )
+
+    return {
+        "transaction_id": transaction_id,
+        "message": "Uploaded documents processed successfully.",
+        "status": "DOCUMENTS_UPLOADED"
+    }
 
 
 # ============================================================

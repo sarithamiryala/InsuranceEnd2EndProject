@@ -15,6 +15,7 @@ def build_state_from_db(claim: dict, docs: list) -> ClaimState:
         amount=claim.get("amount"),
         claim_type=claim.get("claim_type"),
         extracted_text=claim.get("extracted_text"),
+        document_extracted_text = claim.get("document_extracted_text"),
 
         claim_registered=bool(claim.get("claim_registered", False)),
         registered_at=claim.get("registered_at"),

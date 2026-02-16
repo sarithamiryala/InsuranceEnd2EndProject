@@ -59,6 +59,8 @@ class ClaimState(BaseModel):
     amount: Optional[float] = None
     claim_type: Optional[str] = None
     extracted_text: Optional[str] = None
+    document_extracted_text: Optional[str] = None
+
 
     # -------------------------
     # Documents
