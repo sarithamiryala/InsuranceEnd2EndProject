@@ -72,37 +72,52 @@ def _ensure_claims_extra_columns(conn):
     cols = _table_columns(conn, "claims")
     add = []
 
-    # Existing extra columns
+    # Core lifecycle
     if "final_decision" not in cols:
         add.append("ALTER TABLE claims ADD COLUMN final_decision TEXT;")
-
     if "updated_at" not in cols:
         add.append("ALTER TABLE claims ADD COLUMN updated_at TEXT;")
+    # Base schema already has 'status' in your CREATE TABLE, so this is optional:
+    # if "status" not in cols:
+    #     add.append("ALTER TABLE claims ADD COLUMN status TEXT;")
 
+    # Validation & fraud
+    if "validation" not in cols:
+        add.append("ALTER TABLE claims ADD COLUMN validation TEXT;")  # store JSON string
+    if "claim_validated" not in cols:
+        add.append("ALTER TABLE claims ADD COLUMN claim_validated INTEGER;")
     if "fraud_score" not in cols:
         add.append("ALTER TABLE claims ADD COLUMN fraud_score REAL;")
-
     if "fraud_decision" not in cols:
         add.append("ALTER TABLE claims ADD COLUMN fraud_decision TEXT;")
 
-    if "claim_validated" not in cols:
-        add.append("ALTER TABLE claims ADD COLUMN claim_validated INTEGER;")
-
+    # Manager metadata
     if "manager_comment" not in cols:
         add.append("ALTER TABLE claims ADD COLUMN manager_comment TEXT;")
+    if "manager_decision" not in cols:
+        add.append("ALTER TABLE claims ADD COLUMN manager_decision TEXT;")
 
-    # Investigator assignment columns
+    # Investigator / assignment (if used anywhere in code)
     if "investigator_id" not in cols:
         add.append("ALTER TABLE claims ADD COLUMN investigator_id TEXT;")
-
     if "assignment_reason" not in cols:
         add.append("ALTER TABLE claims ADD COLUMN assignment_reason TEXT;")
-
     if "assignment_status" not in cols:
         add.append("ALTER TABLE claims ADD COLUMN assignment_status TEXT;")
-
     if "assigned_at" not in cols:
         add.append("ALTER TABLE claims ADD COLUMN assigned_at TEXT;")
+
+    # 🔴 CRITICAL: the canonical OCR block your validator uses
+    if "document_extracted_text" not in cols:
+        add.append("ALTER TABLE claims ADD COLUMN document_extracted_text TEXT;")
+
+    # Optional JSON blobs (include only if you actually persist them)
+    if "assignment" not in cols:
+        add.append("ALTER TABLE claims ADD COLUMN assignment TEXT;")
+    if "manager_agent" not in cols:
+        add.append("ALTER TABLE claims ADD COLUMN manager_agent TEXT;")
+    if "investigator_agent" not in cols:
+        add.append("ALTER TABLE claims ADD COLUMN investigator_agent TEXT;")
 
     for stmt in add:
         conn.execute(stmt)

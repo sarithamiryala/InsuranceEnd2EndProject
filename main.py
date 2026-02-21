@@ -97,40 +97,198 @@ async def ClaimRegistrationTool(
 # ============================================================
 # 2️⃣ DOCUMENT OCR TEXT UPDATE TOOL (FRONTEND → DB)
 # ============================================================
+from datetime import datetime, timezone
+from typing import Optional, Dict, List
+import re
+
+from backend.db.sqlite_store import (
+    fetch_claim_and_docs,
+    update_claim_fields,
+    insert_documents,
+)
+
+# --------------------------------------------------------------------
+# Helpers: section rendering & merging
+# --------------------------------------------------------------------
+_DOC_TITLES = [
+    "FIR",
+    "DRIVING_LICENSE",
+    "RC_BOOK",
+    "POLICY_COPY",
+    "REPAIR_ESTIMATE",
+    "ACCIDENT_PHOTOS",
+    "MISC",  # used only when we need a catch‑all
+]
+
+def _render_section(title: str, body: str) -> str:
+    body = (body or "").strip()
+    return f"=== {title} ===\n{body}\n" if body else ""
+
+def _split_sections(text: str) -> Dict[str, str]:
+    """
+    Split a canonical OCR block into {SECTION: body}.
+    Accepts text with '=== SECTION ===' headers. If no headers found, returns {"MISC": text}.
+    """
+    text = (text or "").replace("\r\n", "\n").strip()
+    if not text:
+        return {}
+
+    sections: Dict[str, str] = {}
+    # Split by header lines, keep titles
+    parts = re.split(r"(?m)^\s*===\s*([A-Z_]+)\s*===\s*$", text)
+    # parts -> ["before?", TITLE1, BODY1, TITLE2, BODY2, ...]
+    if len(parts) >= 3:
+        it = iter(parts[1:])
+        for title, body in zip(it, it):
+            title = title.strip().upper()
+            sections[title] = (body or "").strip()
+        # If the very first chunk before the first header had content, push to MISC
+        head = (parts[0] or "").strip()
+        if head:
+            sections.setdefault("MISC", head)
+    else:
+        # No headers at all; put entire text under MISC
+        sections["MISC"] = text
+
+    return sections
+
+def _merge_section_maps(old_map: Dict[str, str], new_map: Dict[str, str]) -> Dict[str, str]:
+    """
+    Merge section dicts; new non‑empty content replaces old. Missing sections keep old.
+    """
+    if not old_map:
+        return dict(new_map)
+    if not new_map:
+        return dict(old_map)
+
+    merged = dict(old_map)
+    for k, v in new_map.items():
+        if (v or "").strip():
+            merged[k] = v.strip()
+    return merged
+
+def _render_canonical_block(sections: Dict[str, str]) -> str:
+    """
+    Render sections dict into canonical OCR block in a fixed order.
+    """
+    lines = []
+    for t in _DOC_TITLES:
+        if t in sections and sections[t]:
+            lines.append(f"=== {t} ===")
+            lines.append(sections[t].strip())
+    # Add any unknown keys not in the ordered list
+    for k in sections:
+        if k not in _DOC_TITLES and sections[k]:
+            lines.append(f"=== {k} ===")
+            lines.append(sections[k].strip())
+
+    return ("\n".join(lines)).strip()
+
+def _sections_present(text: str) -> List[str]:
+    present = []
+    for t in _DOC_TITLES:
+        if f"=== {t} ===" in (text or ""):
+            present.append(t)
+    return present
+
+
+# --------------------------------------------------------------------
+# The tool: UpdateDocumentExtractedTextTool
+# --------------------------------------------------------------------
+from datetime import datetime, timezone
+from typing import Optional
+
+from backend.db.sqlite_store import fetch_claim_and_docs, update_claim_fields
 
 @mcp.tool
 async def UpdateDocumentExtractedTextTool(
     transaction_id: str,
-    extracted_text: str
+    extracted_text: str,
+    overwrite: bool = False  # default: merge/append
 ):
     """
-    Updates OCR extracted text of uploaded documents
-    for a registered insurance claim.
-
-    Use this tool AFTER customer uploads FIR / DL / RC /
-    repair estimate etc.
-
-    This text will later be used by AI Validation Agent
-    during claim validation.
+    Store OCR extracted text for a claim (single blob), with optional overwrite.
+    - If overwrite=False (default), merges by appending with a separator line.
+    - If overwrite=True, replaces existing content.
+    - Never wipes with empty input.
     """
 
-    claim, docs = fetch_claim_and_docs(transaction_id)
+    new_text = (extracted_text or "").replace("\r\n", "\n").strip()
 
+    # 1) Ensure txn exists
+    claim, _ = fetch_claim_and_docs(transaction_id)
     if not claim:
         return {"error": "Transaction ID not found. Please register claim first."}
 
-    update_claim_fields(
-        transaction_id,
-        document_extracted_text=extracted_text,
-        status="DOCUMENTS_UPLOADED",
-        updated_at=datetime.now(timezone.utc).isoformat()
-    )
+    existing = (claim.get("document_extracted_text") or "").strip()
 
+    # 2) Decide final text
+    if overwrite:
+        final_text = new_text if new_text else existing  # don't wipe with empty
+    else:
+        if not new_text:
+            # merge mode + empty input => keep existing
+            final_text = existing
+        elif not existing:
+            final_text = new_text
+        else:
+            # Simple merge strategy: append a separator (you can make this smarter later)
+            sep = "\n\n---\n\n"
+            final_text = existing + sep + new_text
+
+    # 3) Persist (only set column if something to save)
+    updates = {
+        "status": "DOCUMENTS_UPLOADED",
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+    if final_text:
+        updates["document_extracted_text"] = final_text
+
+    update_claim_fields(transaction_id, **updates)
+
+    # 4) Read-back confirmation
+    saved, _ = fetch_claim_and_docs(transaction_id)
+    saved_text = (saved.get("document_extracted_text") or "")
     return {
         "transaction_id": transaction_id,
-        "message": "Uploaded documents processed successfully.",
-        "status": "DOCUMENTS_UPLOADED"
+        "status": saved.get("status"),
+        "saved_len": len(saved_text),
+        "message": "Merged with existing content." if (existing and not overwrite and new_text) else "Saved.",
+        "preview": saved_text[:800]
     }
+# @mcp.tool
+# async def UpdateDocumentExtractedTextTool(
+#     transaction_id: str,
+#     extracted_text: str
+# ):
+#     """
+#     Updates OCR extracted text of uploaded documents
+#     for a registered insurance claim.
+
+#     Use this tool AFTER customer uploads FIR / DL / RC /
+#     repair estimate etc.
+
+#     This text will later be used by AI Validation Agent
+#     during claim validation.
+#     """
+
+#     claim, docs = fetch_claim_and_docs(transaction_id)
+
+#     if not claim:
+#         return {"error": "Transaction ID not found. Please register claim first."}
+
+#     update_claim_fields(
+#         transaction_id,
+#         document_extracted_text=extracted_text,
+#         status="DOCUMENTS_UPLOADED",
+#         updated_at=datetime.now(timezone.utc).isoformat()
+#     )
+
+#     return {
+#         "transaction_id": transaction_id,
+#         "message": "Uploaded documents processed successfully.",
+#         "status": "DOCUMENTS_UPLOADED"
+#     }
 
 
 # ============================================================
