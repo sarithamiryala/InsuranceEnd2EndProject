@@ -1,40 +1,46 @@
-from backend.state.claim_state import ClaimState
+# backend/utils/state_builder.py
+import json
+from backend.state.claim_state import ClaimState, ValidationResult
 
+def _safe_json_obj(text: str) -> dict:
+    if not text:
+        return {}
+    try:
+        data = json.loads(text)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        # Attempt brace-slice rescue
+        s, e = text.find("{"), text.rfind("}")
+        if s != -1 and e != -1 and e > s:
+            try:
+                data = json.loads(text[s:e+1])
+                return data if isinstance(data, dict) else {}
+            except Exception:
+                return {}
+        return {}
 
-def build_state_from_db(claim: dict, docs: list) -> ClaimState:
-    """
-    Safely reconstruct ClaimState from DB row.
-    Prevents None → Pydantic validation errors.
-    """
-
-    return ClaimState(
-        transaction_id=claim.get("transaction_id"),
-        claim_id=claim.get("claim_id"),
-        customer_name=claim.get("customer_name"),
-        policy_number=claim.get("policy_number"),
+def build_state_from_db(claim, docs):
+    state = ClaimState(
+        transaction_id=claim["transaction_id"],
+        claim_id=(claim.get("claim_id") or "").strip(),
+        customer_name=(claim.get("customer_name") or "").strip(),
+        policy_number=(claim.get("policy_number") or "").strip(),
         amount=claim.get("amount"),
-        claim_type=claim.get("claim_type"),
-        extracted_text=claim.get("extracted_text"),
-        document_extracted_text = claim.get("document_extracted_text"),
-
-        claim_registered=bool(claim.get("claim_registered", False)),
-        registered_at=claim.get("registered_at"),
-
-        claim_validated=bool(claim.get("claim_validated", False)),
-
-        fraud_checked=bool(claim.get("fraud_checked", False)),
-        fraud_score=claim.get("fraud_score"),
-        fraud_decision=claim.get("fraud_decision"),
-
-        claim_decision_made=bool(claim.get("claim_decision_made", False)),
-        claim_approved=bool(claim.get("claim_approved", False)),
-        payment_processed=bool(claim.get("payment_processed", False)),
-        claim_closed=bool(claim.get("claim_closed", False)),
-
-        final_decision=claim.get("final_decision"),
-
-        # DO NOT pass validation or assignment from DB
-        # Let Pydantic create default objects
-
-        documents=docs or []
+        claim_type=(claim.get("claim_type") or "").strip().lower(),
+        extracted_text=(claim.get("extracted_text") or "").strip(),
+        document_extracted_text=(claim.get("document_extracted_text") or "").strip(),
     )
+
+    val_json = _safe_json_obj(claim.get("validation") or "")
+    if val_json:
+        state.validation = ValidationResult(
+            required_missing=val_json.get("required_missing", []),
+            warnings=val_json.get("warnings", []),
+            errors=val_json.get("errors", []),
+            docs_ok=bool(val_json.get("docs_ok", False)),
+            note=val_json.get("note", ""),
+            recommendation=(val_json.get("recommendation", "") or "").upper(),
+        )
+        state.claim_validated = state.validation.docs_ok
+
+    return state

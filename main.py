@@ -3,8 +3,9 @@ from fastapi import FastAPI
 from fastmcp import FastMCP
 from typing import Optional
 from datetime import datetime, timezone 
-from backend.utils.state_builder import build_state_from_db
-
+import json
+from backend.utils.state_builder import build_state_from_db 
+from fastapi.encoders import jsonable_encoder
 # ----------------------
 # Backend modules
 # ----------------------
@@ -14,14 +15,13 @@ from backend.db.sqlite_store import (
     fetch_claim_and_docs,
     update_claim_fields
 )
-
 from backend.agents.registration_agent import registration_agent
-from backend.agents.validation_agent import validation_agent
 from backend.agents.llm_validation_agent import llm_validation_agent
 from backend.agents.fraud_agent import fraud_agent
 from backend.agents.investigator_agent import investigator_agent
 from backend.agents.manager_agent import ManagerAgent
 from backend.graph.claim_graph_v3 import claim_graph_v3
+from backend.graph.claim_graph_v3 import claim_graph_v3_postreg 
 
 # ----------------------
 # FastAPI app init
@@ -61,6 +61,14 @@ async def ClaimRegistrationTool(
     This is the FIRST step in the insurance claim lifecycle.
     Returns a transaction ID used for further claim processing.
     """
+    
+# Normalize at the boundary
+    claim_id = (claim_id or "").strip()
+    customer_name = (customer_name or "").strip()
+    policy_number = (policy_number or "").strip()
+    description = (description or "").strip()
+    claim_type = (claim_type or "").strip().lower()
+
     state = ClaimState(
         claim_id=claim_id,
         customer_name=customer_name,
@@ -84,6 +92,7 @@ async def ClaimRegistrationTool(
         "registered_at": state.registered_at,
         "claim_id": state.claim_id
     }
+
 
 # ============================================================
 # 2️⃣ DOCUMENT OCR TEXT UPDATE TOOL (FRONTEND → DB)
@@ -144,12 +153,16 @@ async def ClaimLLMValidationTool(transaction_id: str):
     if not claim:
         return {"error": "Claim not found"}
 
+        # inside ClaimLLMValidationTool
     state = build_state_from_db(claim, docs)
     state = llm_validation_agent(state)
 
+    # Serialize proper JSON (not str(dict))
+    validation_json = json.dumps(state.validation.model_dump(), ensure_ascii=False)
+
     update_claim_fields(
         transaction_id,
-        validation=str(state.validation.model_dump()),
+        validation=validation_json,
         status="AI_VALIDATED" if state.claim_validated else "PENDING_DOCUMENTS",
         updated_at=datetime.now(timezone.utc).isoformat()
     )
@@ -227,53 +240,74 @@ async def InvestigatorAssignmentTool(transaction_id: str):
 # 6️⃣ FULL AI GRAPH PROCESSING
 # ============================================================
 
+
 @mcp.tool
 async def ManagerProcessingTool(transaction_id: str):
     """
-    Executes the full AI-driven claim processing workflow.
+    Runs the complete post‑registration AI claim processing workflow.
 
-    Use this tool to automatically run the complete claim lifecycle
-    including validation, fraud detection, investigation assignment,
-    and decision making.
+    This tool executes the claim flow starting from validation, and then
+    automatically routes through fraud scoring (when documents are complete)
+    and finally to the manager node, which produces the final claim decision.
 
-    Produces final claim decision such as:
-    APPROVED, REJECTED, or PENDING_DOCUMENTS.
+    Workflow (matches business rule diagram):
+    1. LLM Validation
+    2. If documents are NOT OK → Manager → PENDING_DOCUMENTS / REJECTED
+    3. If documents are OK → Fraud Scoring
+    4. If fraud_score ≥ 0.7 → ESCALATED_TO_SIU
+    5. Otherwise → Manager decision using validation recommendation
+    (APPROVE, REJECT, or NEED_MORE_DOCUMENTS)
+
+    Returns:
+    - final_decision      → APPROVED | REJECTED | PENDING_DOCUMENTS | ESCALATED_TO_SIU
+    - fraud_score         → float or null (if fraud not executed)
+    - fraud_decision      → SAFE | MODERATE | SUSPECT or null
+    - validation          → full validation result
     """
+    # 1) Load state from DB
     claim, docs = fetch_claim_and_docs(transaction_id)
     if not claim:
         return {"error": "Claim not found"}
 
     state = build_state_from_db(claim, docs)
 
-    # Run graph workflow
-    final_state = await claim_graph_v3.ainvoke(state)
-    if not isinstance(final_state, dict):
-        final_state = final_state.model_dump()
+    # 2) Run graph (validate -> fraud (optional by routing) -> manager(finalize) -> END)
+    final_state = await claim_graph_v3_postreg.ainvoke(state)
 
-    # Run Manager Agent
-    manager = ManagerAgent()
-    manager_result = manager.run(state)
+    # 3) Convert the ENTIRE result to JSON-safe structure
+    #    This flattens any Pydantic models (including ValidationResult), datetimes, etc.
+    returned = jsonable_encoder(
+        final_state,
+        custom_encoder={datetime: lambda v: v.isoformat()}
+    )
+    # `returned` is now a plain dict of primitives (JSON serializable)
+
+    # 4) Persist: store `validation` as proper JSON string (never str(dict), never a Pydantic object)
+    validation_json = None
+    if "validation" in returned and returned["validation"] is not None:
+        # returned["validation"] is a plain dict now
+        validation_json = json.dumps(returned["validation"], ensure_ascii=False)
 
     update_claim_fields(
         transaction_id,
-        final_decision=manager_result.get("final_decision"),
-        status=manager_result.get("final_decision") or "UNDER_REVIEW",
-        fraud_score=final_state.get("fraud_score"),
-        fraud_decision=final_state.get("fraud_decision"),
-        validation=str(final_state.get("validation")),
-        manager_decision=manager_result.get("manager_decision"),
-        updated_at=datetime.now(timezone.utc).isoformat()
+        final_decision=returned.get("final_decision"),
+        status=returned.get("final_decision") or claim.get("status") or "UNDER_REVIEW",
+        fraud_score=returned.get("fraud_score"),
+        fraud_decision=returned.get("fraud_decision"),
+        validation=validation_json,  # <-- JSON string (or None)
+        manager_decision="Finalized by manager node",
+        updated_at=datetime.now().isoformat()
     )
 
+    # 5) Return JSON-safe response (FastAPI will json.dumps this without error)
     return {
         "transaction_id": transaction_id,
-        "final_decision": manager_result.get("final_decision"),
-        "manager_decision": manager_result.get("manager_decision"),
-        "fraud_score": final_state.get("fraud_score"),
-        "fraud_decision": final_state.get("fraud_decision"),
-        "validation": final_state.get("validation")
+        "final_decision": returned.get("final_decision"),
+        "manager_decision": "Finalized by manager node",
+        "fraud_score": returned.get("fraud_score"),
+        "fraud_decision": returned.get("fraud_decision"),
+        "validation": returned.get("validation"),
     }
-
 # ============================================================
 # 7️⃣ MANUAL MANAGER OVERRIDE
 # ============================================================
@@ -339,3 +373,4 @@ def ClaimStatusTool(transaction_id: str):
 
 if __name__ == "__main__":
     mcp.run(transport="http", host="0.0.0.0", port=8000)
+ 
