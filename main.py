@@ -41,13 +41,24 @@ from datetime import datetime, timezone
 def livez():
     return {"status": "ok", "ts": datetime.now(timezone.utc).isoformat()}
 
-@app.get("/readyz")
-def readyz():
+@app.get("/readyz/debug")
+def readyz_debug():
+    import os, traceback
+    from fastapi.responses import JSONResponse
     try:
-        from backend.db.postgres_store import ping_db
-        return {"status": "ready"} if ping_db(2) else JSONResponse({"status": "not_ready"}, 503)
+        from backend.db.postgres_store import _connect_with_retries, _build_dsn
+        dsn = _build_dsn()
+        conn = _connect_with_retries(retries=1, initial_delay=0.1, connect_timeout_s=2)
+        conn.close()
+        return {"ready": True, "dsn": dsn[:30] + "..."}
     except Exception as e:
-        return JSONResponse({"status": "not_ready", "error": str(e)}, 503)
+        return JSONResponse({
+            "ready": False,
+            "dsn_present": bool(os.getenv("DATABASE_URL")),
+            "env": os.getenv("DATABASE_URL", "")[:30] + "...",
+            "error": str(e),
+            "trace": traceback.format_exc()[-500:]
+        }, 503)
 
 
 # ----------------------
