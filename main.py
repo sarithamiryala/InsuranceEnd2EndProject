@@ -30,8 +30,17 @@ app = FastAPI(title="Enterprise MCP Insurance Server")
 
 @app.on_event("startup")
 def startup():
-    init_db()
-    print("[DB] Initialized")
+    init_db(non_blocking=True)  # no network connection here 
+@app.get("/livez")
+def livez():
+    return {"status": "ok"}
+
+@app.get("/readyz")
+def readyz():
+    from fastapi.responses import JSONResponse
+    from backend.db.postgres_store import ping_db
+    return {"status": "ready"} if ping_db(2) else JSONResponse({"status": "not_ready"}, 503)
+
 
 # ----------------------
 # Convert FastAPI → MCP
