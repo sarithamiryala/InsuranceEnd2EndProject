@@ -4,7 +4,7 @@ from backend.db.investigator_store import (
     increment_investigator_load,
     record_assignment
 )
-from backend.db.postgres_store import update_claim_fields  # use your PostgreSQL updater
+# from backend.db.postgres_store import update_claim_fields  # use your PostgreSQL updater
 
 def investigator_agent(state):
     # 1️⃣ Only assign if fraud checked

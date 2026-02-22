@@ -2,7 +2,7 @@ from typing import Dict, Any
 from datetime import datetime, timezone
 
 from backend.state.claim_state import ClaimState
-from backend.db.postgres_store import update_claim_fields
+# from backend.db.postgres_store import update_claim_fields
 
 
 class ManagerAgent:
@@ -40,6 +40,7 @@ class ManagerAgent:
         pass
 
     def finalize_claim(self, state: ClaimState) -> ClaimState:
+        from backend.db.postgres_store import update_claim_fields
 
         # -------------------------
         # MCP Cloud Resume Guard

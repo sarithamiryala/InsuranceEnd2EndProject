@@ -2,27 +2,39 @@ from backend.utils.logger import logger
 from backend.state.claim_state import ClaimState
 from datetime import datetime, timezone
 import uuid
-from backend.db.postgres_store import init_db, upsert_claim_registration, insert_documents 
 
-init_db()
+# NOTE:
+# Do NOT import or initialize the DB here at module import time.
+# This keeps MCP inspection and app startup from failing when DATABASE_URL is absent.
+# We will lazy-import the required DB functions inside the agent.
 
 MAX_TEXT_LEN = 90000
 
 def _aggregate_extracted_text(state: ClaimState) -> str:
     parts = []
-    if state.extracted_text:
+    if getattr(state, "extracted_text", None):
         parts.append(state.extracted_text)
-    for d in state.documents:
-        if d.extracted_text:
+    for d in getattr(state, "documents", []) or []:
+        if getattr(d, "extracted_text", None):
             parts.append(d.extracted_text)
     combined = "\n\n".join([p.strip() for p in parts if p and p.strip()])
     return combined[:MAX_TEXT_LEN] if combined else ""
 
 def registration_agent(state: ClaimState):
-    if not state.transaction_id:
+    """
+    Registers a claim:
+    - Ensures transaction_id and registered_at
+    - Aggregates OCR text into state.extracted_text (bounded by MAX_TEXT_LEN)
+    - Persists claim and documents to PostgreSQL
+    - Updates state flags and logs
+    """
+    # Generate transaction id if missing
+    if not getattr(state, "transaction_id", None):
         state.transaction_id = str(uuid.uuid4())
+
+    # Mark and timestamp registration
     state.claim_registered = True
-    if not state.registered_at:
+    if not getattr(state, "registered_at", None):
         state.registered_at = datetime.now(timezone.utc).isoformat()
 
     # Aggregate OCR into extracted_text
@@ -30,8 +42,12 @@ def registration_agent(state: ClaimState):
     if agg:
         state.extracted_text = agg
 
-    # Persist
+    # ⬇️ Lazy-import DB operations ONLY when this function runs.
+    # This prevents build/inspection/startup from touching the DB.
     try:
+        from backend.db.postgres_store import upsert_claim_registration, insert_documents
+
+        # Persist claim
         upsert_claim_registration(
             transaction_id=state.transaction_id,
             claim_id=state.claim_id,
@@ -43,15 +59,30 @@ def registration_agent(state: ClaimState):
             registered_at=state.registered_at,
             status="REGISTERED",
         )
-        insert_documents(state.transaction_id, [
-            {
-              "filename": d.filename, "content_type": d.content_type, "size_bytes": d.size_bytes,
-              "doc_type": d.doc_type, "extracted_text": (d.extracted_text or "")[:MAX_TEXT_LEN]
-            } for d in state.documents
-        ])
+
+        # Persist attached documents (if any)
+        docs_payload = []
+        for d in getattr(state, "documents", []) or []:
+            docs_payload.append({
+                "filename": getattr(d, "filename", None),
+                "content_type": getattr(d, "content_type", None),
+                "size_bytes": getattr(d, "size_bytes", None),
+                "doc_type": getattr(d, "doc_type", None),
+                "extracted_text": (getattr(d, "extracted_text", "") or "")[:MAX_TEXT_LEN],
+            })
+        if docs_payload:
+            insert_documents(state.transaction_id, docs_payload)
+
         logger.info(f"[RegistrationAgent] Claim registered & saved: {state.claim_id} tx={state.transaction_id}")
+        if not hasattr(state, "logs") or state.logs is None:
+            state.logs = []
         state.logs.append(f"[registration] saved tx={state.transaction_id}")
+
     except Exception as e:
+        # Never crash the agent on DB failure—log and append to state.logs
         logger.error(f"[RegistrationAgent] DB error: {type(e).__name__}: {e}")
+        if not hasattr(state, "logs") or state.logs is None:
+            state.logs = []
         state.logs.append(f"[registration] db_error={type(e).__name__}")
+
     return state

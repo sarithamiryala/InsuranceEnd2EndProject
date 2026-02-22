@@ -41,7 +41,6 @@ def _build_dsn(base_url: Optional[str] = None, connect_timeout_s: Optional[int] 
 
     # Ensure a connect timeout (seconds)
     if connect_timeout_s is None:
-        # Default small timeout; can be overridden by DB_CONNECT_TIMEOUT
         connect_timeout_s = int(_get_env("DB_CONNECT_TIMEOUT", "5"))
 
     if "connect_timeout=" not in url:
@@ -66,8 +65,7 @@ def _connect_with_retries(
     last_err = None
     for attempt in range(1, max_retries + 1):
         try:
-            # Note: libpq honors PGHOSTADDR env (if you set it at runtime)
-            # so you can prefer IPv4 by exporting PGHOSTADDR=0.0.0.0 or the server's A record.
+            # libpq honors PGHOSTADDR if set (e.g., prefer IPv4)
             conn = psycopg2.connect(dsn)
             return conn
         except Exception as e:
@@ -76,7 +74,6 @@ def _connect_with_retries(
                 break
             time.sleep(delay)
             delay = min(delay * 2.0, 5.0)
-    # Exhausted retries
     raise last_err
 
 # ─────────────────────────────────────────────────────────────
@@ -108,7 +105,7 @@ def db_conn():
 
 def _ensure_tables(conn) -> None:
     """
-    Create tables if they don't exist. Idempotent; safe to call more than once.
+    Create tables if they don't exist. Idempotent.
     """
     global _TABLES_READY
     if _TABLES_READY:
@@ -163,21 +160,15 @@ def _ensure_tables(conn) -> None:
 def init_db(non_blocking: bool = False) -> None:
     """
     Prepare DB layer.
-    - If non_blocking=True: do NOT attempt any network connection; if DATABASE_URL is missing, return quietly.
+    - If non_blocking=True: return immediately (no DSN validation, no network).
     - If non_blocking=False: connect once and ensure tables (with retries).
     """
     if non_blocking:
-        # In non-blocking mode, we must never raise if DATABASE_URL is absent.
-        try:
-            _ = _build_dsn()
-        except Exception:
-            # No DATABASE_URL set → skip silently so startup/inspection won't fail.
-            return
-        # DSN is fine; still skip real connection in non-blocking mode.
+        # Critical: absolutely NO DSN touch here (so inspection never sees DATABASE_URL).
         return
 
     # Blocking path: require a valid DSN and connect
-    _ = _build_dsn()                 # will raise if DATABASE_URL missing/malformed
+    _ = _build_dsn()                 # raises if DATABASE_URL missing/malformed
     conn = _connect_with_retries()
     try:
         _ensure_tables(conn)
@@ -189,9 +180,6 @@ def init_db(non_blocking: bool = False) -> None:
             pass
 
 def _ensure_tables_if_needed(conn) -> None:
-    """
-    Lazily ensure tables exist on first real DB use.
-    """
     if not _TABLES_READY:
         _ensure_tables(conn)
 
@@ -201,10 +189,7 @@ def _ensure_tables_if_needed(conn) -> None:
 
 def ping_db(timeout_seconds: float = 2.0) -> bool:
     """
-    Quick readiness probe:
-      - Tries to connect with a small connect_timeout
-      - Executes SELECT 1
-    Returns True if reachable; False otherwise.
+    Try a quick connection and SELECT 1 with a short timeout.
     """
     try:
         conn = _connect_with_retries(retries=1, initial_delay=0.1, connect_timeout_s=int(timeout_seconds))
@@ -226,13 +211,6 @@ def ping_db(timeout_seconds: float = 2.0) -> bool:
 # ─────────────────────────────────────────────────────────────
 
 def upsert_claim_registration(**kwargs):
-    """
-    Upsert minimal registration row.
-    Expects keys:
-      - transaction_id, claim_id, registered_at
-      - customer_name, policy_number, amount, claim_type
-      - extracted_text
-    """
     with db_conn() as conn:
         _ensure_tables_if_needed(conn)
         with conn.cursor() as cur:
@@ -320,7 +298,6 @@ def update_claim_fields(transaction_id: str, **fields):
                 set_cols.append(sql.Identifier(k))
                 values.append(v)
 
-            # Build: UPDATE claims SET col1=%s, col2=%s ... WHERE transaction_id=%s
             assignments = sql.SQL(", ").join(
                 sql.Composed([col, sql.SQL("=%s")]) for col in set_cols
             )
