@@ -5,7 +5,6 @@ from typing import Dict, Any, List, Tuple, Optional
 
 import psycopg2
 from psycopg2 import sql
-from psycopg2.extras import RealDictCursor
 
 # Optional: load .env in local/dev. In cloud, env is injected by platform.
 try:
@@ -52,8 +51,8 @@ def _build_dsn(base_url: Optional[str] = None, connect_timeout_s: Optional[int] 
     return url
 
 def _connect_with_retries(
-    retries: int = None,
-    initial_delay: float = None,
+    retries: Optional[int] = None,
+    initial_delay: Optional[float] = None,
     connect_timeout_s: Optional[int] = None
 ):
     """
@@ -164,17 +163,21 @@ def _ensure_tables(conn) -> None:
 def init_db(non_blocking: bool = False) -> None:
     """
     Prepare DB layer.
-    - If non_blocking=True: do NOT attempt any network connection; just validate DSN.
+    - If non_blocking=True: do NOT attempt any network connection; if DATABASE_URL is missing, return quietly.
     - If non_blocking=False: connect once and ensure tables (with retries).
     """
-    # Validate DSN formatting (adds ssl + timeout if missing)
-    _ = _build_dsn()
-
     if non_blocking:
-        # Skip real connection; suitable for app startup / MCP inspection
+        # In non-blocking mode, we must never raise if DATABASE_URL is absent.
+        try:
+            _ = _build_dsn()
+        except Exception:
+            # No DATABASE_URL set → skip silently so startup/inspection won't fail.
+            return
+        # DSN is fine; still skip real connection in non-blocking mode.
         return
 
-    # Perform a real connection + table ensure (used in CLI or explicit init)
+    # Blocking path: require a valid DSN and connect
+    _ = _build_dsn()                 # will raise if DATABASE_URL missing/malformed
     conn = _connect_with_retries()
     try:
         _ensure_tables(conn)

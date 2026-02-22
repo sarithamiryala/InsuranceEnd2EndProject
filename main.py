@@ -8,13 +8,6 @@ import os
 from backend.utils.state_builder import build_state_from_db 
 from fastapi.encoders import jsonable_encoder
 from backend.state.claim_state import ClaimState
-from backend.db.postgres_store import (
-    init_db,
-    fetch_claim_and_docs,
-    update_claim_fields,
-    upsert_claim_registration,
-    insert_documents
-)
 from backend.agents.registration_agent import registration_agent
 from backend.agents.llm_validation_agent import llm_validation_agent
 from backend.agents.fraud_agent import fraud_agent
@@ -85,7 +78,13 @@ async def ClaimRegistrationTool(
     This is the FIRST step in the insurance claim lifecycle.
     Returns a transaction ID used for further claim processing.
     """
-    
+    from backend.db.postgres_store import (
+    init_db,
+    fetch_claim_and_docs,
+    update_claim_fields,
+    upsert_claim_registration,
+    insert_documents
+)
 # Normalize at the boundary
     claim_id = (claim_id or "").strip()
     customer_name = (customer_name or "").strip()
@@ -239,7 +238,14 @@ async def UpdateDocumentExtractedTextTool(
 
     Returns:
     - transaction_id, status, preview of saved text, message
-    """
+    """ 
+    from backend.db.postgres_store import (
+    init_db,
+    fetch_claim_and_docs,
+    update_claim_fields,
+    upsert_claim_registration,
+    insert_documents
+        )
 
     new_text = (extracted_text or "").replace("\r\n", "\n").strip()
 
@@ -341,7 +347,14 @@ async def ClaimLLMValidationTool(transaction_id: str):
     - PENDING_DOCUMENTS → if documents are incomplete
 
     Returns updated claim validation result.
-    """
+    """ 
+    from backend.db.postgres_store import (
+    init_db,
+    fetch_claim_and_docs,
+    update_claim_fields,
+    upsert_claim_registration,
+    insert_documents
+    )
 
     # 1️⃣ Load claim from PostgreSQL
     claim, docs = fetch_claim_and_docs(transaction_id)
@@ -383,7 +396,14 @@ async def FraudCheckTool(transaction_id: str):
     - Fraud decision (LOW, MEDIUM, HIGH risk)
 
     Updates claim status to FRAUD_CHECKED.
-    """
+    """ 
+    from backend.db.postgres_store import (
+    init_db,
+    fetch_claim_and_docs,
+    update_claim_fields,
+    upsert_claim_registration,
+    insert_documents
+    )
     claim, docs = fetch_claim_and_docs(transaction_id)
     if not claim:
         return {"error": "Claim not found"}
@@ -416,6 +436,13 @@ async def InvestigatorAssignmentTool(transaction_id: str):
     Updates claim status to:
     UNDER_INVESTIGATION or NO_INVESTIGATION_REQUIRED.
     """
+    from backend.db.postgres_store import (
+    init_db,
+    fetch_claim_and_docs,
+    update_claim_fields,
+    upsert_claim_registration,
+    insert_documents
+    )
     claim, docs = fetch_claim_and_docs(transaction_id)
     if not claim:
         return {"error": "Claim not found"}
@@ -598,7 +625,14 @@ async def ManagerProcessingTool(transaction_id: str):
     """
     from fastapi.encoders import jsonable_encoder
     from backend.agents.llm_validation_agent import llm_validation_agent
-    from backend.graph.claim_graph_v3 import manager_node
+    from backend.graph.claim_graph_v3 import manager_node 
+    from backend.db.postgres_store import (
+    init_db,
+    fetch_claim_and_docs,
+    update_claim_fields,
+    upsert_claim_registration,
+    insert_documents
+    )
 
     # 1️⃣ Load claim
     claim, docs = fetch_claim_and_docs(transaction_id)
@@ -670,7 +704,14 @@ def ManagerDecisionTool(transaction_id: str, decision: str, comment: Optional[st
 
     Valid decisions:
     APPROVED, REJECTED, PENDING_DOCUMENTS
-    """
+    """ 
+    from backend.db.postgres_store import (
+    init_db,
+    fetch_claim_and_docs,
+    update_claim_fields,
+    upsert_claim_registration,
+    insert_documents
+    )
     decision = decision.upper()
     valid = ["APPROVED", "REJECTED", "PENDING_DOCUMENTS"]
 
@@ -703,7 +744,14 @@ def ClaimStatusTool(transaction_id: str):
     final decision of a submitted claim.
 
     Returns claim status and final approval or rejection decision.
-    """
+    """ 
+    from backend.db.postgres_store import (
+    init_db,
+    fetch_claim_and_docs,
+    update_claim_fields,
+    upsert_claim_registration,
+    insert_documents
+    )
     claim, _ = fetch_claim_and_docs(transaction_id)
     if not claim:
         return {"error": "Transaction not found"}
