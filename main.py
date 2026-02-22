@@ -28,18 +28,33 @@ from backend.graph.claim_graph_v3 import claim_graph_v3_postreg
 # ----------------------
 app = FastAPI(title="Enterprise MCP Insurance Server")
 
+
 @app.on_event("startup")
 def startup():
-    init_db(non_blocking=True)  # no network connection here 
+    from backend.db.postgres_store import init_db
+    try:
+        # Non-blocking: do not attempt a real connection; just prep if possible.
+        init_db(non_blocking=True)
+        print("[DB] init_db (non-blocking) invoked")
+    except Exception as e:
+        # Never crash the app if DATABASE_URL is missing or malformed
+        print(f"[Startup] Skipping DB init (non-fatal): {e}")
+
+# Health endpoints (as you already added)
+from fastapi.responses import JSONResponse
+from datetime import datetime, timezone
+
 @app.get("/livez")
 def livez():
-    return {"status": "ok"}
+    return {"status": "ok", "ts": datetime.now(timezone.utc).isoformat()}
 
 @app.get("/readyz")
 def readyz():
-    from fastapi.responses import JSONResponse
-    from backend.db.postgres_store import ping_db
-    return {"status": "ready"} if ping_db(2) else JSONResponse({"status": "not_ready"}, 503)
+    try:
+        from backend.db.postgres_store import ping_db
+        return {"status": "ready"} if ping_db(2) else JSONResponse({"status": "not_ready"}, 503)
+    except Exception as e:
+        return JSONResponse({"status": "not_ready", "error": str(e)}, 503)
 
 
 # ----------------------
