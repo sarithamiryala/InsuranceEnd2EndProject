@@ -4,6 +4,7 @@ from fastmcp import FastMCP
 from typing import Optional
 from datetime import datetime, timezone 
 import json
+import os
 from backend.utils.state_builder import build_state_from_db 
 from fastapi.encoders import jsonable_encoder
 from backend.state.claim_state import ClaimState
@@ -694,6 +695,11 @@ def ClaimStatusTool(transaction_id: str):
 # RUN SERVER
 # ============================================================
 
+
+
 if __name__ == "__main__":
-    mcp.run(transport="http", host="0.0.0.0", port=8000)
- 
+    mcp.run(
+        transport="http",
+        host="0.0.0.0",
+        port=int(os.environ.get("PORT", 8080))
+    )
