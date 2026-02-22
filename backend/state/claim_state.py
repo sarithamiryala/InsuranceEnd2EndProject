@@ -36,7 +36,8 @@ class ValidationResult(BaseModel):
 class Assignment(BaseModel):
     investigator_id: Optional[str] = None
     sla_days: Optional[int] = None
-    reason: Optional[str] = None
+    reason: Optional[str] = None 
+    
 
 
 # ============================================================
@@ -90,6 +91,7 @@ class ClaimState(BaseModel):
     # Investigator
     # -------------------------
     assignment: Assignment = Field(default_factory=Assignment)
+    investigator_assigned: bool = False
 
     # -------------------------
     # Decision Stage

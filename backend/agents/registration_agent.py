@@ -2,7 +2,8 @@ from backend.utils.logger import logger
 from backend.state.claim_state import ClaimState
 from datetime import datetime, timezone
 import uuid
-from backend.db.sqlite_store import init_db, upsert_claim_registration, insert_documents
+from backend.db.postgres_store import init_db, upsert_claim_registration, insert_documents 
+
 init_db()
 
 MAX_TEXT_LEN = 90000

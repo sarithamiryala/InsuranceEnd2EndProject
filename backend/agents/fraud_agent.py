@@ -192,11 +192,38 @@ Rules:
 
 def fraud_agent(state: ClaimState) -> ClaimState:
     """
-    Hybrid fraud scorer:
-    1) Normalize inputs
-    2) Call LLM (safe JSON parse)
-    3) Apply deterministic floors from validation + heuristics
-    4) Produce final score & decision
+    Hybrid Fraud Scoring Agent (FastMCP Cloud Resume Safe)
+
+    This node evaluates fraud risk after successful LLM validation
+    when mandatory documents are available.
+
+    Execution:
+    1. Runs LLM-based fraud reasoning on OCR + validation findings
+    2. Applies deterministic fraud floors from:
+    - Missing mandatory docs
+    - Policy / DL expiry
+    - FIR / RC mismatch
+    - Narrative contradiction
+    - Customer name mismatch in OCR
+    - Multiple vehicle registrations
+
+    3. Final fraud_score = max(LLM_score, deterministic floors)
+    4. Maps fraud_score to:
+    SAFE | MODERATE | SUSPECT
+
+    Post-Execution State Updates:
+    - fraud_checked = True
+    - fraud_score (float)
+    - fraud_decision (SAFE | MODERATE | SUSPECT)
+
+    These values MUST be persisted to DB so that when
+    FastMCP rebuilds ClaimState from PostgreSQL JSONB
+    during a new Copilot session, the graph does not
+    re-execute fraud scoring unnecessarily and manager
+    routing remains deterministic.
+
+    Returns:
+    Updated ClaimState with fraud flags.
     """
     # Normalize
     claim_type = _lower(state.claim_type)
