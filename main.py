@@ -714,7 +714,44 @@ async def ManagerProcessingTool(transaction_id: str):
         "fraud_decision": getattr(state, "fraud_decision", None),
         "validation": validation_json,
         "assignment": assignment_json,
+    }  
+# ============================================================
+# 8️⃣ MANAGER DECISION TOOL 
+# ============================================================
+@mcp.tool
+def ManagerDecisionTool(transaction_id: str, decision: str, comment: Optional[str] = None):
+    """
+    Allows the Claims Manager to manually override and set the final decision
+    for a claim as APPROVED, REJECTED, or PENDING_DOCUMENTS along with
+    optional review comments. Updates claim status and decision in database.
+    """ 
+    from backend.db.postgres_store import (
+    init_db,
+    fetch_claim_and_docs,
+    update_claim_fields,
+    upsert_claim_registration,
+    insert_documents
+    )
+
+    decision = decision.upper()
+    valid = ["APPROVED", "REJECTED", "PENDING_DOCUMENTS"]
+
+    if decision not in valid:
+        return {"error": "Invalid decision"}
+
+    update_claim_fields(
+        transaction_id,
+        final_decision=decision,
+        status=decision,
+        manager_comment=comment,
+        updated_at=datetime.now(timezone.utc).isoformat()
+    )
+
+    return {
+        "transaction_id": transaction_id,
+        "status": decision
     }
+
 # ============================================================
 # 8️⃣ STATUS CHECK TOOL
 # ============================================================
