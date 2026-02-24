@@ -29,7 +29,7 @@ MANDATORY_DOC_MARKERS = [
     ("=== RC_BOOK ===", "RC_BOOK"),
     ("=== POLICY_COPY ===", "POLICY_COPY"),
     ("=== REPAIR_ESTIMATE ===", "REPAIR_ESTIMATE"),
-    ("=== ACCIDENT_PHOTOS ===", "ACCIDENT_PHOTOS"),
+  
 ]
 
 # OCR fallback keyword hints when markers are absent (used by the text-only LLM and pre checks if needed)
@@ -39,7 +39,7 @@ DOC_HINTS: Dict[str, List[str]] = {
     "RC_BOOK": [r"\bRC\s*Book\b", r"Registration\s+Certificate", r"\bReg\s*No\b"],
     "POLICY_COPY": [r"\bInsurance\s+Policy\b", r"\bPolicy\b", r"\bPolicy\s*Number\b"],
     "REPAIR_ESTIMATE": [r"\bRepair\s+Estimate\b", r"\bEstimate\b", r"\bQuotation\b"],
-    "ACCIDENT_PHOTOS": [r"\bAccident\s+Photo", r"\bPhotos?\b", r"\.jpe?g\b", r"\.png\b"],
+   
 }
 
 RECOMMENDATION_ORDER = {
@@ -283,7 +283,7 @@ def _prevalidate(state: ClaimState) -> Dict[str, List[str] | bool | str]:
             "RC_BOOK": [r"^RC\s*Book\s*:", r"^Registration\s*Certificate\s*:"],
             "POLICY_COPY": [r"^Insurance\s*Policy\s*:", r"^Policy\s*(?:Copy|Number)?\s*:"],
             "REPAIR_ESTIMATE": [r"^Repair\s*Estimate\s*:", r"^Estimate\s*:"],
-            "ACCIDENT_PHOTOS": [r"^Accident\s*Photo\s*:", r"^Photos?\s*:"],
+          
         }
         aliases = title_alias.get(title, [rf"^{re.escape(title)}\s*:"])
 
@@ -313,7 +313,7 @@ def _prevalidate(state: ClaimState) -> Dict[str, List[str] | bool | str]:
     rc_text = _extract_block("RC_BOOK")
     policy_text = _extract_block("POLICY_COPY")
     estimate_text = _extract_block("REPAIR_ESTIMATE")
-    photos_text = _extract_block("ACCIDENT_PHOTOS")
+   
 
     # 3) Incident date (from description or FIR)
     incident_date = _parse_date_with_formats(desc) or _parse_date_with_formats(fir_text)
@@ -378,13 +378,7 @@ def _prevalidate(state: ClaimState) -> Dict[str, List[str] | bool | str]:
             warnings.append("Unusually high repair estimate for minor damage")
         if severity == "MODERATE" and total > 150000:
             warnings.append("Repair estimate appears inflated for moderate impact")
-        if photos_text:
-            pt = photos_text.lower()
-            if any(k in pt for k in ["minor", "hairline", "scratch"]) and re.search(
-                r"(bumper|headlamp|door|fender).*(replace|assembly|assy)",
-                estimate_text, flags=re.IGNORECASE | re.DOTALL
-            ):
-                warnings.append("Photos suggest minor damage but estimate lists major replacements")
+       
     else:
         warnings.append("Repair estimate not provided or unclear")
 
@@ -449,12 +443,11 @@ def _build_llm_prompt(state: ClaimState, pre: dict) -> str:
         "- Policy Number: {policy_number}\n"
         "- Claim Type: {claim_type}\n"
         "- Claimed Amount: {amount}\n\n"
-        "Accident Description (from customer):\n"
         "{claim_description}\n\n"
         "Uploaded Document OCR (verbatim):\n"
         "{uploaded_docs}\n\n"
         "MANDATORY DOCUMENTS (Must be present)\n"
-        "- FIR\n- DRIVING_LICENSE\n- RC_BOOK\n- POLICY_COPY\n- REPAIR_ESTIMATE\n- ACCIDENT_PHOTOS\n\n"
+        "- FIR\n- DRIVING_LICENSE\n- RC_BOOK\n- POLICY_COPY\n- REPAIR_ESTIMATE\n- \n\n"
         "LOCAL DETERMINISTIC FINDINGS (from pre-validation)\n"
         f"- required_missing: {pre_required}\n"
         f"- warnings: {pre_warnings}\n"
@@ -468,12 +461,12 @@ def _build_llm_prompt(state: ClaimState, pre: dict) -> str:
         "3) Check DL validity on incident date.\n"
         "4) Check Policy validity and whether OD/Comprehensive coverage applies.\n"
         "5) Verify vehicle consistency (RC/Policy/FIR registration numbers).\n"
-        "6) Evaluate repair estimate plausibility (inflation vs severity & photos).\n"
+        # "6) Evaluate repair estimate plausibility (inflation vs severity & photos).\n"
         "7) Identify fake/unverifiable estimates (non-network, no GSTIN, no part numbers).\n"
         "8) Provide actionable notes for a human manager.\n\n"
         "STRICT OUTPUT (Return ONLY valid JSON, no extra text):\n"
         "{{\n"
-        '  "required_missing": ["FIR","DRIVING_LICENSE","RC_BOOK","POLICY_COPY","REPAIR_ESTIMATE","ACCIDENT_PHOTOS"],\n'
+        '  "required_missing": ["FIR","DRIVING_LICENSE","RC_BOOK","POLICY_COPY","REPAIR_ESTIMATE"],\n'
         '  "warnings": ["..."],\n'
         '  "errors": ["..."],\n'
         '  "docs_ok": true,\n'
@@ -484,7 +477,7 @@ def _build_llm_prompt(state: ClaimState, pre: dict) -> str:
         "-----\n"
         '- If any mandatory document is missing -> recommendation = "NEED_MORE_DOCUMENTS".\n'
         '- If policy expired or DL invalid -> recommendation = "REJECT".\n'
-        '- If narrative mismatch or photo/estimate contradiction and strong -> prefer "NEED_MORE_DOCUMENTS" unless clearly fraudulent -> "REJECT".\n'
+        '- If narrative mismatch estimate contradiction and strong -> prefer "NEED_MORE_DOCUMENTS" unless clearly fraudulent -> "REJECT".\n'
         '- If all documents present and no critical errors -> "APPROVE".\n'
         "- Keep note concise (<= 5 lines) but specific.\n"
     )
@@ -514,7 +507,6 @@ def _build_llm_text_only_prompt(state: ClaimState) -> str:
         "OCR TEXT (verbatim)\n"
         "-------------------\n"
         "{uploaded_docs}\n\n"
-        "ACCIDENT DESCRIPTION\n"
         "--------------------\n"
         "{claim_description}\n\n"
         "TASKS\n"
@@ -525,7 +517,7 @@ def _build_llm_text_only_prompt(state: ClaimState) -> str:
         "   - RC_BOOK (reg, engine, chassis, owner)\n"
         "   - POLICY_COPY (policy number, period start/end, coverage = COMPREHENSIVE | OD | TP_ONLY | UNKNOWN)\n"
         "   - REPAIR_ESTIMATE (total amount numeric, presence of GSTIN, presence of part numbers)\n"
-        "   - ACCIDENT_PHOTOS (describe references if any)\n"
+   
         "2) Validate:\n"
         "   - Policy period covers the incident date (if an incident date is present or inferable).\n"
         "   - DL validity on incident date.\n"
@@ -539,7 +531,7 @@ def _build_llm_text_only_prompt(state: ClaimState) -> str:
         '    "RC_BOOK": {{"present": true/false, "confidence": 0.0-1.0, "citations": ["..."]}},\n'
         '    "POLICY_COPY": {{"present": true/false, "confidence": 0.0-1.0, "citations": ["..."]}},\n'
         '    "REPAIR_ESTIMATE": {{"present": true/false, "confidence": 0.0-1.0, "citations": ["..."]}},\n'
-        '    "ACCIDENT_PHOTOS": {{"present": true/false, "confidence": 0.0-1.0, "citations": ["..."]}}\n'
+        
         "  }},\n"
         '  "fields": {{\n'
         '    "policy": {{"number": "string|null", "start": "string|null", "end": "string|null", "coverage": "COMPREHENSIVE|OD|TP_ONLY|UNKNOWN"}},\n'
@@ -592,7 +584,7 @@ def _safe_llm_text_only_loads(raw: str) -> dict:
             "RC_BOOK": {"present": False, "confidence": 0.0, "citations": []},
             "POLICY_COPY": {"present": False, "confidence": 0.0, "citations": []},
             "REPAIR_ESTIMATE": {"present": False, "confidence": 0.0, "citations": []},
-            "ACCIDENT_PHOTOS": {"present": False, "confidence": 0.0, "citations": []},
+           
         },
         "fields": {
             "policy": {"number": None, "start": None, "end": None, "coverage": "UNKNOWN"},
@@ -761,17 +753,32 @@ def llm_validation_agent(state: ClaimState) -> ClaimState:
     docs_ok = (len(required_missing) == 0 and not any(e in errors for e in ["Policy expired or not covering OD", "Driving License invalid/expired"]))
 
     # recommendation precedence
-    final_rec = _merge_recommendation(pre_adjusted.get("recommendation", "APPROVE"), llm.get("recommendation", "APPROVE"))
+    final_rec = _merge_recommendation(
+        pre_adjusted.get("recommendation", "APPROVE"),
+        llm.get("recommendation", "APPROVE")
+    )
 
-    # Ensure critical rules override
+    # ---- Critical Overrides ----
+
+    # 1️⃣ Missing documents → NEED_MORE_DOCUMENTS
     if required_missing:
         final_rec = "NEED_MORE_DOCUMENTS"
         docs_ok = False
-    if any(e in errors for e in ["Policy expired or not covering OD", "Driving License invalid/expired"]):
+
+    # 2️⃣ Hard errors → REJECT
+    elif any(e in errors for e in [
+        "Policy expired or not covering OD",
+        "Driving License invalid/expired"
+    ]):
         final_rec = "REJECT"
         docs_ok = False
-    # If nothing missing and no critical errors -> APPROVE
-    if docs_ok and not required_missing:
+
+    # 3️⃣ Warnings present but no hard errors → SUSPECT
+    elif docs_ok and warnings:
+        final_rec = "SUSPECT"
+
+    # 4️⃣ Clean case → APPROVE
+    elif docs_ok:
         final_rec = "APPROVE"
 
     # Compose concise note (always populated)

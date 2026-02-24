@@ -43,32 +43,54 @@ class ManagerAgent:
         from backend.db.postgres_store import update_claim_fields
 
         # -------------------------
-        # MCP Cloud Resume Guard
+        # Resume Guard
         # -------------------------
-        if state.final_decision:
-            state.claim_decision_made = True
-            return state
+        # Resume-safe but allow recalculation if fraud or validation changed
+        if state.claim_decision_made and state.final_decision in [
+            "APPROVED",
+            "REJECTED",
+            "ESCALATED_TO_SIU"
+        ]:
+            # Re-evaluate only if fraud or validation now indicates risk
+            validation = getattr(state, "validation", None)
+            rec = (getattr(validation, "recommendation", "") or "").upper()
+            fraud_score = state.fraud_score or 0.0
+
+            if fraud_score < 0.7 and rec not in ["SUSPECT", "REJECT", "NEED_MORE_DOCUMENTS"]:
+                return state
 
         validation = getattr(state, "validation", None)
-        docs_ok = bool(getattr(validation, "docs_ok", False))
-        rec = (getattr(validation, "recommendation", None) or "").upper()
-        fraud_score = state.fraud_score if state.fraud_score is not None else None
 
-        if not docs_ok:
+        docs_ok = bool(getattr(validation, "docs_ok", False))
+        warnings = getattr(validation, "warnings", []) or []
+        rec = (getattr(validation, "recommendation", "") or "").upper()
+
+        fraud_score = state.fraud_score if state.fraud_score is not None else 0.0
+        fraud_decision = (state.fraud_decision or "").upper()
+
+        # -------------------------
+        # Decision Hierarchy
+        # -------------------------
+
+        # 1️⃣ Missing documents
+        if not docs_ok or rec == "NEED_MORE_DOCUMENTS":
             final_decision = "PENDING_DOCUMENTS"
 
-        elif fraud_score is not None and fraud_score >= 0.7:
+        # 2️⃣ Hard reject
+        elif rec == "REJECT":
+            final_decision = "REJECTED"
+
+        # 3️⃣ High fraud risk OR SUSPECT → Escalate
+        elif fraud_score >= 0.7 or fraud_decision == "SUSPECT" or rec == "SUSPECT":
             final_decision = "ESCALATED_TO_SIU"
 
+        # 4️⃣ Warnings present → Escalate (even if fraud low)
+        elif warnings:
+            final_decision = "ESCALATED_TO_SIU"
+
+        # 5️⃣ Only clean case should approve
         else:
-            if rec == "APPROVE":
-                final_decision = "APPROVED"
-            elif rec == "REJECT":
-                final_decision = "REJECTED"
-            elif rec == "NEED_MORE_DOCUMENTS":
-                final_decision = "PENDING_DOCUMENTS"
-            else:
-                final_decision = "PENDING_DOCUMENTS"
+            final_decision = "APPROVED"
 
         state.final_decision = final_decision
         state.claim_decision_made = True

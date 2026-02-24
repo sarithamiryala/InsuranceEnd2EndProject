@@ -384,17 +384,28 @@ async def ClaimLLMValidationTool(transaction_id: str):
     # 3️⃣ Run AI validation
     state = llm_validation_agent(state)
 
-    # 4️⃣ Persist VALIDATION as JSONB (NOT STRING)
+    # 4️⃣ Decide final validation status
+    status_value = "AI_VALIDATED" 
+
+    # 5️⃣ Persist VALIDATION
     update_claim_fields(
         transaction_id,
-        validation=json.dumps(state.validation.model_dump()),  # ✅ JSONB SAFE
+        validation=json.dumps(state.validation.model_dump()),
         claim_validated=state.claim_validated,
-        status="AI_VALIDATED" if state.claim_validated else "PENDING_DOCUMENTS",
+        status=status_value,
         updated_at=datetime.now(timezone.utc).isoformat()
     )
 
-    # 5️⃣ Return response
-    return state.model_dump()
+    # 6️⃣ RETURN UPDATED STATE (VERY IMPORTANT)
+    return {
+        "transaction_id": transaction_id,
+        "status": status_value,
+        "message": "Validation performed successfully",
+        "claim_validated": state.claim_validated,
+        "docs_ok": state.validation.docs_ok,
+        "missing_documents": getattr(state.validation, "missing_documents", []),
+        "validation": state.validation.model_dump()
+    }
 
 # ============================================================
 # 4️⃣ FRAUD CHECK TOOL
@@ -415,28 +426,33 @@ async def FraudCheckTool(transaction_id: str):
     Updates claim status to FRAUD_CHECKED.
     """ 
     from backend.db.postgres_store import (
-    init_db,
-    fetch_claim_and_docs,
-    update_claim_fields,
-    upsert_claim_registration,
-    insert_documents
+        fetch_claim_and_docs,
+        update_claim_fields
     )
+
     claim, docs = fetch_claim_and_docs(transaction_id)
+
     if not claim:
         return {"error": "Claim not found"}
 
     state = build_state_from_db(claim, docs)
+
     state = fraud_agent(state)
 
     update_claim_fields(
         transaction_id,
+        fraud_checked=True,
         fraud_score=state.fraud_score,
         fraud_decision=state.fraud_decision,
-        status="FRAUD_CHECKED",
         updated_at=datetime.now(timezone.utc).isoformat()
     )
 
-    return state.model_dump()
+    return {
+        "transaction_id": transaction_id,
+        "fraud_score": state.fraud_score,
+        "fraud_decision": state.fraud_decision,
+        "note": "Fraud risk assessment completed. Claim lifecycle unchanged."
+    }
 
 # ============================================================
 # 5️⃣ INVESTIGATOR ASSIGNMENT TOOL
@@ -642,9 +658,25 @@ async def ManagerProcessingTool(transaction_id: str):
     # 2) Rebuild state
     state = build_state_from_db(claim, docs)
 
-    # 3) AI-based validation (if not already validated)
-    if not getattr(state, "claim_validated", False):
+    # -----------------------------
+    # DB-AWARE VALIDATION CHECK
+    # -----------------------------
+    if not claim.get("validation"):
+
+        print("[ManagerTool] Running Validation (Post Registration)")
         state = llm_validation_agent(state)
+        state.claim_validated = True
+
+        update_claim_fields(
+            transaction_id,
+            validation=json.dumps(jsonable_encoder(state.validation)),
+            claim_validated=True,
+            updated_at=datetime.now(timezone.utc).isoformat()
+        )
+
+    else:
+        print("[ManagerTool] Using Existing Validation from DB")
+        state.claim_validated = True
 
     # 3b) Short-circuit if docs are incomplete -> keep both status & final_decision aligned
     validation_obj = getattr(state, "validation", None)
@@ -667,9 +699,28 @@ async def ManagerProcessingTool(transaction_id: str):
             "validation": validation_json,
         }
 
-    # 4) Fraud scoring (only when docs are okay)
-    state = fraud_agent(state)
-    state.fraud_checked = True
+    # -----------------------------
+    # DB-AWARE FRAUD CHECK
+    # -----------------------------
+    if claim.get("fraud_score") is None:
+
+        print("[ManagerTool] Running Fraud Check (Post Validation)")
+        state = fraud_agent(state)
+        state.fraud_checked = True
+
+        update_claim_fields(
+            transaction_id,
+            fraud_score=state.fraud_score,
+            fraud_decision=state.fraud_decision,
+            fraud_checked=True,
+            updated_at=datetime.now(timezone.utc).isoformat()
+        )
+
+    else:
+        print(f"[ManagerTool] Using Existing Fraud Score: {claim.get('fraud_score')}")
+        state.fraud_score = claim.get("fraud_score")
+        state.fraud_decision = claim.get("fraud_decision")
+        state.fraud_checked = True
 
     # 5) Investigator assignment for high fraud (coalesce score)
     fraud_score_val = _to_float(getattr(state, "fraud_score", None), default=0.0)
