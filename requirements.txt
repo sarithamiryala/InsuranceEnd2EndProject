@@ -1,10 +1,5 @@
 fastapi
 uvicorn[standard]
-pypdf
-pymupdf
-pytesseract
-pillow
-opencv-python-headless
 langgraph
 langchain
 pydantic
